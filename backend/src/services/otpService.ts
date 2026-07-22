@@ -24,7 +24,9 @@ export async function issueOtp(userId: string, phone: string, purpose: string) {
 
   await sendSms(phone, `Your ServiceConnect verification code is ${code}. It expires in ${config.otp.ttlMinutes} minutes.`);
 
-  return { expiresAt, devOtp: config.nodeEnv === "production" ? undefined : code };
+  // No real SMS provider is wired up (see smsGateway.ts) — the code is only ever
+  // delivered via this field, in every environment, so it must not be suppressed in prod.
+  return { expiresAt, devOtp: code };
 }
 
 export async function verifyOtp(userId: string, purpose: string, code: string): Promise<void> {

@@ -18,7 +18,9 @@ export function VerifyOtpPage() {
 
   const [code, setCode] = useState(state?.devOtp ?? "");
   const [error, setError] = useState<string | null>(null);
-  const [info, setInfo] = useState<string | null>(state?.devOtp ? `Dev mode: your OTP is ${state.devOtp}` : null);
+  const [info, setInfo] = useState<string | null>(
+    state?.devOtp ? `No SMS gateway is connected in this demo — your code is ${state.devOtp}` : null
+  );
   const [submitting, setSubmitting] = useState(false);
 
   if (!state?.userId) {
@@ -51,7 +53,7 @@ export function VerifyOtpPage() {
     setError(null);
     try {
       const res = await resendOtp(state!.userId);
-      setInfo(res.devOtp ? `Dev mode: your new OTP is ${res.devOtp}` : "A new code has been sent.");
+      setInfo(res.devOtp ? `No SMS gateway is connected in this demo — your new code is ${res.devOtp}` : "A new code has been sent.");
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Something went wrong.");
     }
