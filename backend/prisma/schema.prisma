@@ -1,0 +1,347 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  CUSTOMER
+  PROVIDER
+  ADMIN
+}
+
+enum AccountStatus {
+  PENDING_VERIFICATION
+  ACTIVE
+  SUSPENDED
+  REJECTED
+  DELETED
+}
+
+model User {
+  id                String        @id @default(uuid())
+  fullName          String
+  phone             String        @unique
+  email             String        @unique
+  passwordHash      String
+  role              Role
+  status            AccountStatus @default(PENDING_VERIFICATION)
+
+  phoneVerifiedAt   DateTime?
+  emailVerifiedAt   DateTime?
+
+  failedLoginCount  Int           @default(0)
+  lockedUntil       DateTime?
+
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  deletedAt         DateTime?
+
+  otps              Otp[]
+  refreshTokens     RefreshToken[]
+  passwordResets    PasswordReset[]
+  providerProfile   ProviderProfile?
+  serviceRequests   ServiceRequest[] @relation("CustomerRequests")
+  reviewsAuthored   Review[]         @relation("ReviewsAuthored")
+  reviewsReceived   Review[]         @relation("ReviewsReceived")
+  messages          Message[]
+}
+
+enum PricingModel {
+  FIXED
+  HOURLY
+  INSPECT_THEN_QUOTE
+}
+
+model Category {
+  id           String       @id @default(uuid())
+  name         String
+  slug         String       @unique
+  icon         String?
+  description  String?
+  displayOrder Int          @default(0)
+  active       Boolean      @default(true)
+  subServices  SubService[]
+}
+
+model SubService {
+  id                String       @id @default(uuid())
+  categoryId        String
+  category          Category     @relation(fields: [categoryId], references: [id])
+  name              String
+  description       String?
+  defaultPricing    PricingModel
+  suggestedMinPrice Int? // minor units
+  suggestedMaxPrice Int? // minor units
+  durationMinutes   Int?
+  active            Boolean      @default(true)
+
+  providerServices  ProviderService[]
+  serviceRequests   ServiceRequest[]
+
+  @@index([categoryId])
+}
+
+enum ProviderVerificationStatus {
+  PENDING_VERIFICATION
+  APPROVED
+  REJECTED
+}
+
+model ProviderProfile {
+  id               String                      @id @default(uuid())
+  userId           String                      @unique
+  user             User                        @relation(fields: [userId], references: [id])
+
+  legalName        String?
+  cnic             String?
+  dateOfBirth      DateTime?
+  photoUrl         String?
+  businessName     String?
+  bio              String?
+  yearsExperience  Int?
+  languages        String? // comma-separated
+
+  baseLat          Float?
+  baseLng          Float?
+  baseAddress      String?
+  radiusKm         Float?
+
+  verificationStatus ProviderVerificationStatus @default(PENDING_VERIFICATION)
+  rejectionReason  String?
+  tosAcceptedAt    DateTime?
+  tosVersion       String?
+
+  isOnline         Boolean                     @default(false)
+  lastOnlineAt     DateTime?
+  submittedAt      DateTime?
+  reviewedAt       DateTime?
+  reviewedBy       String?
+
+  createdAt        DateTime                    @default(now())
+  updatedAt        DateTime                    @updatedAt
+
+  services         ProviderService[]
+  documents        ProviderDocument[]
+  availability     ProviderAvailability[]
+  assignedRequests ServiceRequest[]
+}
+
+model ProviderService {
+  id            String          @id @default(uuid())
+  providerId    String
+  provider      ProviderProfile @relation(fields: [providerId], references: [id])
+  subServiceId  String
+  subService    SubService      @relation(fields: [subServiceId], references: [id])
+  pricingModel  PricingModel
+  basePrice     Int? // minor units, for FIXED
+  hourlyRate    Int? // minor units, for HOURLY
+  calloutFee    Int? // minor units
+
+  @@unique([providerId, subServiceId])
+}
+
+model ProviderDocument {
+  id           String          @id @default(uuid())
+  providerId   String
+  provider     ProviderProfile @relation(fields: [providerId], references: [id])
+  type         String // "ID_FRONT" | "ID_BACK" | "TRADE_CERT" | "BUSINESS_LICENCE" | "POLICE_CLEARANCE"
+  fileUrl      String
+  uploadedAt   DateTime        @default(now())
+
+  @@index([providerId])
+}
+
+model ProviderAvailability {
+  id           String          @id @default(uuid())
+  providerId   String
+  provider     ProviderProfile @relation(fields: [providerId], references: [id])
+  dayOfWeek    Int // 0=Sunday .. 6=Saturday
+  startMinute  Int // minutes from midnight
+  endMinute    Int
+
+  @@index([providerId])
+}
+
+enum RequestUrgency {
+  IMMEDIATE
+  SAME_DAY_SCHEDULED
+  FUTURE_SCHEDULED
+}
+
+enum RequestStatus {
+  PENDING
+  ASSIGNED
+  EN_ROUTE
+  ARRIVED
+  IN_PROGRESS
+  AWAITING_CONFIRMATION
+  COMPLETED
+  UNFULFILLED
+  CANCELLED
+}
+
+model ServiceRequest {
+  id                 String         @id @default(uuid())
+  reference          String         @unique
+  customerId         String
+  customer           User           @relation("CustomerRequests", fields: [customerId], references: [id])
+  subServiceId       String
+  subService         SubService     @relation(fields: [subServiceId], references: [id])
+
+  description        String?
+  photos             String? // comma-separated URLs
+  urgency            RequestUrgency @default(IMMEDIATE)
+  scheduledAt         DateTime?
+
+  lat                Float
+  lng                Float
+  address            String
+
+  status             RequestStatus  @default(PENDING)
+
+  assignedProviderId String?
+  assignedProvider   ProviderProfile? @relation(fields: [assignedProviderId], references: [id])
+  assignedAt         DateTime?
+
+  cancelledBy        String?
+  cancelReason        String?
+
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+
+  declines           ProviderDecline[]
+  events             JobEvent[]
+  reviews            Review[]
+  messages           Message[]
+  invoice            Invoice?
+
+  @@index([status])
+  @@index([subServiceId])
+}
+
+model Message {
+  id               String          @id @default(uuid())
+  serviceRequestId String
+  serviceRequest   ServiceRequest  @relation(fields: [serviceRequestId], references: [id])
+  senderId         String
+  sender           User            @relation(fields: [senderId], references: [id])
+  body             String
+  imageUrl         String?
+  createdAt        DateTime        @default(now())
+  readAt           DateTime?
+
+  @@index([serviceRequestId])
+}
+
+model Review {
+  id               String          @id @default(uuid())
+  serviceRequestId String
+  serviceRequest   ServiceRequest  @relation(fields: [serviceRequestId], references: [id])
+  authorId         String
+  author           User            @relation("ReviewsAuthored", fields: [authorId], references: [id])
+  revieweeId       String
+  reviewee         User            @relation("ReviewsReceived", fields: [revieweeId], references: [id])
+
+  rating           Int // 1-5 overall
+  punctuality      Int?
+  workQuality      Int?
+  professionalism  Int?
+  priceFairness    Int?
+  comment          String?
+
+  createdAt        DateTime        @default(now())
+
+  @@unique([serviceRequestId, authorId])
+  @@index([revieweeId])
+}
+
+enum PaymentMethod {
+  CASH
+  CARD
+  WALLET
+}
+
+model Invoice {
+  id               String         @id @default(uuid())
+  serviceRequestId String         @unique
+  serviceRequest   ServiceRequest @relation(fields: [serviceRequestId], references: [id])
+
+  subtotal         Int // minor units (FR-9.12)
+  commissionRateBp Int // basis points, e.g. 1500 = 15% (FR-9.5)
+  commissionAmount Int // minor units
+  total            Int // minor units
+
+  paymentMethod    PaymentMethod  @default(CASH)
+  paidAt           DateTime?
+
+  createdAt        DateTime       @default(now())
+}
+
+model ProviderDecline {
+  id               String          @id @default(uuid())
+  serviceRequestId String
+  serviceRequest   ServiceRequest  @relation(fields: [serviceRequestId], references: [id])
+  providerId       String
+  reason           String?
+  createdAt        DateTime        @default(now())
+
+  @@unique([serviceRequestId, providerId])
+}
+
+model JobEvent {
+  id               String          @id @default(uuid())
+  serviceRequestId String
+  serviceRequest   ServiceRequest  @relation(fields: [serviceRequestId], references: [id])
+  actorUserId      String?
+  fromStatus       RequestStatus?
+  toStatus         RequestStatus
+  notes            String?
+  createdAt        DateTime        @default(now())
+
+  @@index([serviceRequestId])
+}
+
+model Otp {
+  id          String   @id @default(uuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  codeHash    String
+  purpose     String   // "PHONE_VERIFY" | "LOGIN_2FA"
+  expiresAt   DateTime
+  consumedAt  DateTime?
+  attempts    Int      @default(0)
+  createdAt   DateTime @default(now())
+
+  @@index([userId, purpose])
+}
+
+model RefreshToken {
+  id          String    @id @default(uuid())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id])
+  tokenHash   String    @unique
+  expiresAt   DateTime
+  revokedAt   DateTime?
+  replacedBy  String?
+  createdAt   DateTime  @default(now())
+  userAgent   String?
+  ipAddress   String?
+
+  @@index([userId])
+}
+
+model PasswordReset {
+  id         String    @id @default(uuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id])
+  tokenHash  String    @unique
+  expiresAt  DateTime
+  consumedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([userId])
+}
